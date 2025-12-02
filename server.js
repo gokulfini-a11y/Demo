@@ -22,8 +22,6 @@ app.get("/items", async (req, res) => {
 
     const parsedJsonString = data[0].data;  // extract inner JSON string
     const parsed = JSON.parse(parsedJsonString); // convert string → object
-
-    console.log(parsed);
     
     return res.json({
       data: parsed.data,
