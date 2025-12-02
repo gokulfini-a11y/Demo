@@ -1,28 +1,40 @@
 const express = require("express");
 const cors = require("cors");
+const axios = require("axios");
 
 const app = express();
 app.use(cors());
 
-// Sample MES items data
-const items = [
-  { id: "RM001", name: "Raw Milk", type: "Raw Material", uom: "Litre", status: "Available" },
-  { id: "RM002", name: "Cream", type: "Raw Material", uom: "Kg", status: "Available" },
-  { id: "SF001", name: "Cheese Curd", type: "Semi Finished", uom: "Kg", status: "In Process" },
-  { id: "FN001", name: "Butter", type: "Finished", uom: "Kg", status: "Ready" },
-  { id: "FN002", name: "Cheddar Cheese", type: "Finished", uom: "Kg", status: "Ready" }
-];
+app.get("/items", async (req, res) => {
+  try {
+    const url = "https://linette-remiss-manly.ngrok-free.dev/mesmw/api/v3/DirectAccess?spName=sp_Custom_Item_Inventory_JSON&spParams={\"PageNumber\":1,\"PageSize\":10,\"entName\":null,\"itemId\":null,\"description\":null,\"lot_no\":null,\"sublot_no\":null,\"item_grade_desc\":null,\"item_state_desc\":null,\"item_class\":null,\"fromExpiryDate\":null,\"toExpiryDate\":null,\"siteId\":null,\"site_name\":null,\"sortBy\":\"row_id\",\"sortDir\":\"desc\"}";
 
-// GET endpoint
-app.get("/items", (req, res) => {
-  res.json(items);
+    const token = "abc"; // replace dynamically later
+
+    const response = await axios.get(url, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    // response.data looks like: [ { data: "string json" } ]
+    const rawString = response.data[0].data;
+    const parsed = JSON.parse(rawString);
+
+    return res.json({
+      data: parsed.data,
+      metaData: parsed.metaData
+    });
+
+  } catch (error) {
+    console.error(error.message);
+    res.status(500).json({ error: "Failed to fetch data" });
+  }
 });
 
-// Default route
 app.get("/", (req, res) => {
-  res.send("MES Test API running successfully 🚀");
+  res.send("API Running successfully 🚀");
 });
 
-// Port for Render
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
