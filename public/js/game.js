@@ -1,350 +1,135 @@
-/**
- * THE SALARYMAN SPRINT
- * A Canvas-less, SVG-based Game Engine
- */
-
-// --- Configuration ---
-const CONFIG = {
-    gravity: 0.6,
-    groundY: 350,
-    jumpStrength: -12,
-    speedStart: 6,
-    speedMax: 15,
-    speedIncrement: 0.005,
-    spawnRate: 120 // Frames between obstacles
-};
-
-// --- Game State ---
-let state = {
-    isPlaying: false,
-    frames: 0,
-    score: 0,
-    highScore: parseInt(localStorage.getItem('salaryman_highscore')) || 0,
-    speed: CONFIG.speedStart,
-    player: {
-        y: CONFIG.groundY,
-        vy: 0,
-        isJumping: false,
-        isDucking: false,
-        width: 40,
-        height: 80
-    },
-    obstacles: [], // Array of obstacle objects
-    clouds: []
-};
-
-// --- DOM Elements ---
-const svgWorld = document.getElementById('world-elements');
+const svg = document.getElementById('game-objects');
 const scoreEl = document.getElementById('score');
-const highScoreEl = document.getElementById('high-score');
-const startScreen = document.getElementById('start-screen');
-const gameOverScreen = document.getElementById('game-over-screen');
-const deathReason = document.getElementById('death-reason');
+const menu = document.getElementById('menu');
+const deathScreen = document.getElementById('death-screen');
+const errorMsg = document.getElementById('error-msg');
 
-// --- SVG Helpers ---
-const SVG_NS = "http://www.w3.org/2000/svg";
+let state = {
+    running: false,
+    score: 0,
+    speed: 7,
+    player: { y: 350, vy: 0, jumping: false, ducking: false },
+    obstacles: [],
+    frame: 0
+};
 
-function createSVG(tag, attrs) {
-    const el = document.createElementNS(SVG_NS, tag);
-    for (let k in attrs) el.setAttribute(k, attrs[k]);
-    return el;
+// --- SVG Factory for the Developer (Stickman) ---
+function createPlayerSVG() {
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.id = "player-group";
+    g.innerHTML = `
+        <g stroke="#00ff00" stroke-width="4" fill="none" stroke-linecap="round">
+            <circle id="p-head" cx="0" cy="-70" r="10" /> <line id="p-body" x1="0" y1="-60" x2="0" y2="-25" />
+            <line id="p-arm-l" x1="0" y1="-50" x2="-15" y2="-35" />
+            <line id="p-arm-r" x1="0" y1="-50" x2="15" y2="-35" />
+            <line id="p-leg-l" x1="0" y1="-25" x2="-15" y2="0" />
+            <line id="p-leg-r" x1="0" y1="-25" x2="15" y2="0" />
+            <rect x="5" y="-45" width="20" height="15" fill="#333" stroke="#0f0" stroke-width="1" transform="rotate(-10)"/>
+        </g>
+    `;
+    return g;
 }
 
-// --- Visual Assets (Generated via JS) ---
+const playerNode = createPlayerSVG();
+svg.appendChild(playerNode);
 
-// 1. The Salaryman (Player)
-const playerGroup = createSVG('g', { id: 'player' });
-// Body
-playerGroup.appendChild(createSVG('line', { x1: 20, y1: 20, x2: 20, y2: 60, stroke: '#000', 'stroke-width': 4 }));
-// Head
-playerGroup.appendChild(createSVG('circle', { cx: 20, cy: 10, r: 10, fill: '#fff', stroke: '#000', 'stroke-width': 2 }));
-// Legs (Animated later)
-const leg1 = createSVG('line', { x1: 20, y1: 60, x2: 10, y2: 80, stroke: '#000', 'stroke-width': 4 });
-const leg2 = createSVG('line', { x1: 20, y1: 60, x2: 30, y2: 80, stroke: '#000', 'stroke-width': 4 });
-playerGroup.appendChild(leg1);
-playerGroup.appendChild(leg2);
-// Tie (The funny part)
-const tie = createSVG('path', { d: 'M20,25 L25,50 L15,50 Z', fill: 'red' });
-playerGroup.appendChild(tie);
-
-svgWorld.appendChild(playerGroup);
-
-// --- Game Loop Functions ---
-
-function initGame() {
-    state.isPlaying = true;
-    state.score = 0;
-    state.speed = CONFIG.speedStart;
-    state.frames = 0;
-    state.obstacles = [];
-    state.clouds = [];
-    
-    // Reset Player
-    state.player.y = CONFIG.groundY;
-    state.player.vy = 0;
-    state.player.isDucking = false;
-    
-    // Clear World except player
-    while (svgWorld.lastChild && svgWorld.lastChild.id !== 'player') {
-        svgWorld.removeChild(svgWorld.lastChild);
-    }
-    
-    // Update High Score Display
-    highScoreEl.innerText = state.highScore;
-    
-    // Start Loop
-    requestAnimationFrame(gameLoop);
+function startGame() {
+    state = { running: true, score: 0, speed: 7, player: { y: 350, vy: 0, jumping: false, ducking: false }, obstacles: [], frame: 0 };
+    menu.classList.add('hidden');
+    deathScreen.classList.add('hidden');
+    while(svg.childNodes.length > 1) svg.removeChild(svg.lastChild);
+    loop();
 }
 
-function gameLoop() {
-    if (!state.isPlaying) return;
-
-    state.frames++;
-    state.speed = Math.min(state.speed + CONFIG.speedIncrement, CONFIG.speedMax);
-    state.score = Math.floor(state.frames / 10);
+function loop() {
+    if (!state.running) return;
+    state.frame++;
+    state.score++;
     scoreEl.innerText = state.score;
 
     updatePlayer();
     updateObstacles();
-    updateClouds();
     
-    requestAnimationFrame(gameLoop);
+    if (state.frame % 100 === 0) state.speed += 0.2;
+    requestAnimationFrame(loop);
 }
-
-// --- Player Logic ---
 
 function updatePlayer() {
     const p = state.player;
+    if (p.jumping) {
+        p.vy += 0.8; // Gravity
+        p.y += p.vy;
+        if (p.y >= 350) {
+            p.y = 350;
+            p.jumping = false;
+        }
+    }
+
+    // Animation: Legs move based on frame
+    const legMove = state.player.jumping ? 10 : Math.sin(state.frame * 0.2) * 15;
+    document.getElementById('p-leg-l').setAttribute('x2', -10 - legMove);
+    document.getElementById('p-leg-r').setAttribute('x2', 10 + legMove);
     
-    // Gravity
-    p.vy += CONFIG.gravity;
-    p.y += p.vy;
-
-    // Ground Collision
-    if (p.y > CONFIG.groundY) {
-        p.y = CONFIG.groundY;
-        p.vy = 0;
-        p.isJumping = false;
-    }
-
-    // Ducking Dimensions
-    const currentHeight = p.isDucking ? 40 : 80;
-    const renderY = p.y - currentHeight;
-
-    // SVG Transform
-    playerGroup.setAttribute('transform', `translate(100, ${renderY})`);
-
-    // Animation: Leg Wiggle
-    if (!p.isJumping) {
-        const runCycle = Math.sin(state.frames * 0.5) * 10;
-        leg1.setAttribute('x2', 20 - runCycle);
-        leg2.setAttribute('x2', 20 + runCycle);
-    } else {
-        // Legs splay when jumping
-        leg1.setAttribute('x2', 10);
-        leg2.setAttribute('x2', 30);
-    }
-
-    // Animation: Tie Flap
-    const tieWiggle = Math.sin(state.frames * 0.8) * 5;
-    tie.setAttribute('d', `M20,25 L${25 + tieWiggle},${50} L${15 + tieWiggle},${50} Z`);
-    
-    // Handle Ducking Visuals
-    if(p.isDucking) {
-        // Squish the body line
-        playerGroup.children[0].setAttribute('y1', 40); // Body start lower
-        playerGroup.children[1].setAttribute('cy', 35); // Head lower
-    } else {
-        playerGroup.children[0].setAttribute('y1', 20);
-        playerGroup.children[1].setAttribute('cy', 10);
-    }
-}
-
-// --- Obstacle Logic ---
-
-function createObstacle() {
-    const type = Math.random() > 0.6 ? 'AIR' : 'GROUND';
-    const id = 'obs_' + Date.now();
-    
-    let el;
-    let width, height, yPos;
-    let visualType; 
-
-    if (type === 'GROUND') {
-        width = 40; height = 50; yPos = CONFIG.groundY - height;
-        visualType = 'PAPERWORK';
-        // Draw a stack of papers
-        el = createSVG('g', { id: id, transform: `translate(1100, ${yPos})` });
-        el.appendChild(createSVG('rect', { width: width, height: height, fill: '#e0e0e0', stroke: '#000' }));
-        // Lines of text
-        el.appendChild(createSVG('line', { x1:5, y1:10, x2:35, y2:10, stroke:'#999'}));
-        el.appendChild(createSVG('line', { x1:5, y1:20, x2:35, y2:20, stroke:'#999'}));
-        el.appendChild(createSVG('line', { x1:5, y1:30, x2:35, y2:30, stroke:'#999'}));
-    } else {
-        width = 50; height = 30; yPos = CONFIG.groundY - 110; // Flying height
-        visualType = 'MEETING';
-        // Draw an envelope/email icon
-        el = createSVG('g', { id: id, transform: `translate(1100, ${yPos})` });
-        el.appendChild(createSVG('rect', { width: width, height: height, fill: '#ffeb3b', stroke: '#000' }));
-        // Envelope flap
-        el.appendChild(createSVG('polyline', { points: `0,0 25,15 50,0`, fill: 'none', stroke: '#000' }));
-    }
-
-    svgWorld.appendChild(el);
-    state.obstacles.push({ id, el, x: 1100, y: yPos, width, height, type, visualType });
+    // Position
+    const duckScale = p.ducking ? 0.6 : 1;
+    playerNode.setAttribute('transform', `translate(100, ${p.y}) scale(1, ${duckScale})`);
 }
 
 function updateObstacles() {
-    // Spawn Logic
-    if (state.frames % Math.floor(CONFIG.spawnRate / (state.speed/6)) === 0) {
-        createObstacle();
+    if (state.frame % Math.floor(1000/state.speed) === 0) {
+        spawnObstacle();
     }
 
-    // Move & Collision
-    for (let i = state.obstacles.length - 1; i >= 0; i--) {
-        const obs = state.obstacles[i];
+    state.obstacles.forEach((obs, index) => {
         obs.x -= state.speed;
         obs.el.setAttribute('transform', `translate(${obs.x}, ${obs.y})`);
 
-        // Cull off-screen
+        // Collision Check
+        const pRect = { x: 100, y: state.player.y - (state.player.ducking ? 40 : 80), w: 30, h: state.player.ducking ? 40 : 80 };
+        if (obs.x < pRect.x + pRect.w && obs.x + obs.w > pRect.x && obs.y < pRect.y + pRect.h && obs.y + obs.h > pRect.y) {
+            endGame(obs.type);
+        }
+
         if (obs.x < -100) {
-            svgWorld.removeChild(obs.el);
-            state.obstacles.splice(i, 1);
-            continue;
+            svg.removeChild(obs.el);
+            state.obstacles.splice(index, 1);
         }
-
-        // Hitbox Collision (AABB)
-        // Player hitbox logic
-        const pHeight = state.player.isDucking ? 40 : 80;
-        const pY = state.player.y - pHeight;
-        
-        // Player X is fixed at 100 relative to SVG, width 40
-        const pLeft = 100;
-        const pRight = 140;
-        const pTop = pY;
-        const pBottom = state.player.y;
-
-        const oLeft = obs.x;
-        const oRight = obs.x + obs.width;
-        const oTop = obs.y;
-        const oBottom = obs.y + obs.height;
-
-        // Visual hitbox padding (forgiving gameplay)
-        const padding = 10;
-
-        if (
-            pRight - padding > oLeft &&
-            pLeft + padding < oRight &&
-            pBottom - padding > oTop &&
-            pTop + padding < oBottom
-        ) {
-            gameOver(obs.visualType);
-        }
-    }
+    });
 }
 
-// --- Decor (Clouds) ---
-function updateClouds() {
-    if (Math.random() < 0.01) {
-        const y = Math.random() * 200;
-        const el = createSVG('circle', { cx: 0, cy: 0, r: 30 + Math.random() * 20, fill: '#fff', opacity: 0.5 });
-        const id = 'cloud_' + Date.now();
-        const g = createSVG('g', { id: id, transform: `translate(1100, ${y})`});
-        g.appendChild(el);
-        svgWorld.insertBefore(g, svgWorld.firstChild); // Put behind player
-        state.clouds.push({ id, el: g, x: 1100, speed: 1 + Math.random() });
+function spawnObstacle() {
+    const isTall = Math.random() > 0.5;
+    const type = isTall ? "MERGE_CONFLICT" : "BUG";
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    
+    if (isTall) { // Must Duck
+        el.innerHTML = `<rect width="40" height="100" fill="#f00" fill-opacity="0.3" stroke="#f00" stroke-width="2"/>
+                        <text x="5" y="50" fill="#fff" font-size="10">MERGE</text>`;
+        state.obstacles.push({ x: 1000, y: 220, w: 40, h: 100, el, type });
+    } else { // Must Jump
+        el.innerHTML = `<circle cx="20" cy="20" r="15" fill="#ff6600"/>
+                        <text x="10" y="25" fill="#fff" font-size="10">BUG</text>`;
+        state.obstacles.push({ x: 1000, y: 315, w: 40, h: 40, el, type });
     }
-
-    for (let i = state.clouds.length - 1; i >= 0; i--) {
-        const c = state.clouds[i];
-        c.x -= c.speed;
-        c.el.setAttribute('transform', `translate(${c.x}, 0)`);
-        if (c.x < -100) {
-            svgWorld.removeChild(c.el);
-            state.clouds.splice(i, 1);
-        }
-    }
+    svg.appendChild(el);
 }
 
-// --- Input Handling ---
-
-function handleJump() {
-    if (state.isPlaying && !state.player.isJumping) {
-        state.player.vy = CONFIG.jumpStrength;
-        state.player.isJumping = true;
-    }
+function endGame(type) {
+    state.running = false;
+    deathScreen.classList.remove('hidden');
+    const logs = ["NullPointerException", "Stack Overflow", "Uncaught ReferenceError", "Segmentation Fault"];
+    errorMsg.innerText = `STOP_CODE: ${type} \n ${logs[Math.floor(Math.random()*logs.length)]}`;
 }
 
-function handleDuck(active) {
-    if (state.isPlaying) {
-        state.player.isDucking = active;
-        // Fast fall if ducking in air
-        if(active && state.player.isJumping) {
-            state.player.vy += 5; 
-        }
+// Controls
+window.addEventListener('keydown', e => {
+    if ((e.code === 'Space' || e.code === 'ArrowUp') && !state.player.jumping) {
+        state.player.jumping = true;
+        state.player.vy = -15;
     }
-}
-
-window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' || e.code === 'ArrowUp') {
-        if (!state.isPlaying && startScreen.classList.contains('hidden') === false) {
-            startGame();
-        } else {
-            handleJump();
-        }
-    }
-    if (e.code === 'ArrowDown') handleDuck(true);
+    if (e.code === 'ArrowDown') state.player.ducking = true;
 });
 
-window.addEventListener('keyup', (e) => {
-    if (e.code === 'ArrowDown') handleDuck(false);
+window.addEventListener('keyup', e => {
+    if (e.code === 'ArrowDown') state.player.ducking = false;
 });
-
-// Mobile Controls
-document.addEventListener('touchstart', (e) => {
-    if (!state.isPlaying) return;
-    const touchY = e.touches[0].clientY;
-    if (touchY > window.innerHeight / 2) {
-        handleDuck(true); // Bottom half duck
-    } else {
-        handleJump(); // Top half jump
-    }
-});
-
-document.addEventListener('touchend', () => {
-    handleDuck(false);
-});
-
-// --- Game Flow ---
-
-function startGame() {
-    startScreen.classList.add('hidden');
-    gameOverScreen.classList.add('hidden');
-    initGame();
-}
-
-function gameOver(cause) {
-    state.isPlaying = false;
-    
-    // Determine funny message
-    const reasonText = cause === 'PAPERWORK' 
-        ? "Buried in Paperwork." 
-        : "Hit by a mandatory meeting.";
-    
-    deathReason.innerText = reasonText;
-    
-    // Save High Score
-    if (state.score > state.highScore) {
-        state.highScore = state.score;
-        localStorage.setItem('salaryman_highscore', state.highScore);
-    }
-    
-    gameOverScreen.classList.remove('hidden');
-}
-
-// UI Buttons
-document.getElementById('start-btn').addEventListener('click', startGame);
-document.getElementById('restart-btn').addEventListener('click', startGame);
-
-// Initial Setup
-highScoreEl.innerText = state.highScore;
