@@ -1,5 +1,5 @@
 {
-  "name": "salaryman-sprint",
+  "name": "demo",
   "version": "1.0.0",
   "description": "An SVG-based endless runner about office stress",
   "main": "server.js",
@@ -13,4 +13,5 @@
   "engines": {
     "node": ">=14.0.0"
   }
+
 }
